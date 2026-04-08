@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.wwebjs_auth/
+backups/*.sqlite
+*.log
+coverage/
+
+data/*.sqlite
