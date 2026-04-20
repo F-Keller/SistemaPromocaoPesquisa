@@ -197,9 +197,9 @@ export class SearchRepository {
           result.rank,
           result.store,
           result.title,
-          result.basePrice,
-          result.totalFinal,
-          result.isCostComplete ? 1 : 0,
+          result.verifiedPrice,
+          result.verifiedPrice,
+          1,
           JSON.stringify(result),
           now,
         );

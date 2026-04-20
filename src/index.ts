@@ -19,8 +19,11 @@ async function bootstrap() {
   const adapters = [
     new AmazonSearchAdapter(config, logger),
     new MercadoLivreSearchAdapter(config, logger),
-    new ShopeeSearchAdapter(config, logger),
   ];
+
+  if (config.enableShopeeSearch) {
+    adapters.push(new ShopeeSearchAdapter(config, logger));
+  }
 
   const searchService = new SearchService(config, repository, adapters, logger);
   const cleanupJob = startSearchCleanupJob(config, logger, searchService);

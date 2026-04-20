@@ -36,14 +36,57 @@ const normalizePriceToken = (token: string): string => {
 
   if (clean.includes(".")) {
     const parts = clean.split(".");
-    if (parts.length > 2) {
-      const decimals = parts.pop();
-      return `${parts.join("")}.${decimals}`;
+    if (parts.length === 2 && parts[1].length === 3) {
+      return `${parts[0]}${parts[1]}`;
     }
+
+    if (parts.length > 2) {
+      const decimals = parts[parts.length - 1];
+      const hasDecimals = decimals.length <= 2;
+
+      if (hasDecimals) {
+        const integers = parts.slice(0, -1);
+        return `${integers.join("")}.${decimals}`;
+      }
+
+      return parts.join("");
+    }
+
     return clean;
   }
 
   return clean;
+};
+
+const parseSinglePriceToken = (token: string): number | null => {
+  const normalized = normalizePriceToken(token);
+  const value = Number(normalized);
+  if (!Number.isFinite(value)) return null;
+  return sanitizePrice(value);
+};
+
+const extractPriceTokens = (raw: string): Array<{ token: string; value: number; index: number }> => {
+  const clean = normalizeWhitespace(raw);
+  const regex = new RegExp(PRICE_REGEX.source, "gi");
+  const tokens: Array<{ token: string; value: number; index: number }> = [];
+  let match = regex.exec(clean);
+
+  while (match) {
+    const token = match[1] ?? match[0];
+    const value = parseSinglePriceToken(token);
+
+    if (value !== null) {
+      tokens.push({
+        token,
+        value,
+        index: match.index,
+      });
+    }
+
+    match = regex.exec(clean);
+  }
+
+  return tokens;
 };
 
 export const parsePriceText = (raw: string | null | undefined): number | null => {
@@ -53,11 +96,57 @@ export const parsePriceText = (raw: string | null | undefined): number | null =>
   if (!match || match.length === 0) return null;
 
   const last = match[match.length - 1];
-  const normalized = normalizePriceToken(last);
-  const value = Number(normalized);
+  return parseSinglePriceToken(last);
+};
 
-  if (!Number.isFinite(value)) return null;
-  return sanitizePrice(value);
+export const parsePrimaryPriceText = (raw: string | null | undefined): number | null => {
+  if (!raw) return null;
+
+  const clean = normalizeWhitespace(raw);
+
+  const porMatch = clean.match(/\bpor\s*(?:apenas\s*)?(?:r\$\s*)?([\d.,]+)/i);
+  if (porMatch?.[1]) {
+    const parsed = parseSinglePriceToken(porMatch[1]);
+    if (parsed !== null) return parsed;
+  }
+
+  const vistaMatch = clean.match(/(?:a|\u00E0)\s*vista\s*(?:de\s*)?(?:r\$\s*)?([\d.,]+)/i);
+  if (vistaMatch?.[1]) {
+    const parsed = parseSinglePriceToken(vistaMatch[1]);
+    if (parsed !== null) return parsed;
+  }
+
+  const tokens = extractPriceTokens(clean);
+  if (tokens.length === 0) return null;
+
+  const installmentRegex = /\b\d{1,2}\s*x\s*(?:de\s*)?(?:r\$\s*)?([\d.,]+)/gi;
+  const installmentValues = new Set<number>();
+  let installmentMatch = installmentRegex.exec(clean);
+
+  while (installmentMatch) {
+    const parsed = parseSinglePriceToken(installmentMatch[1]);
+    if (parsed !== null) {
+      installmentValues.add(parsed);
+    }
+    installmentMatch = installmentRegex.exec(clean);
+  }
+
+  const filtered = installmentValues.size > 0
+    ? tokens.filter((token) => {
+        for (const installment of installmentValues) {
+          if (Math.abs(token.value - installment) < 0.01) return false;
+        }
+        return true;
+      })
+    : tokens;
+
+  const targetTokens = filtered.length > 0 ? filtered : tokens;
+
+  if (/\b(parcelas?|x\s*de|sem\s+juros)\b/i.test(clean)) {
+    return targetTokens.reduce((max, item) => (item.value > max ? item.value : max), targetTokens[0].value);
+  }
+
+  return targetTokens[targetTokens.length - 1].value;
 };
 
 export const parseJsonLd = (html: string): any[] => {
@@ -129,11 +218,11 @@ export const extractProductFromJsonLd = (html: string) => {
     basePrice:
       typeof offers?.price === "number"
         ? sanitizePrice(offers.price)
-        : parsePriceText(typeof offers?.price === "string" ? offers.price : null),
+        : parsePrimaryPriceText(typeof offers?.price === "string" ? offers.price : null),
     referencePrice:
       typeof offers?.highPrice === "number"
         ? sanitizePrice(offers.highPrice)
-        : parsePriceText(typeof offers?.highPrice === "string" ? offers.highPrice : null),
+        : parsePrimaryPriceText(typeof offers?.highPrice === "string" ? offers.highPrice : null),
   };
 };
 
@@ -246,7 +335,9 @@ export const detectBlockedHtml = (html: string): boolean => {
     detectCaptchaHtml(html) ||
     text.includes("acesso negado") ||
     text.includes("access denied") ||
-    text.includes("blocked") ||
-    text.includes("too many requests")
+    text.includes("too many requests") ||
+    text.includes("request blocked") ||
+    text.includes("temporarily unavailable due to unusual traffic") ||
+    text.includes("suspicious traffic")
   );
 };

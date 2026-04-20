@@ -1,11 +1,17 @@
-import crypto from "node:crypto";
+﻿import crypto from "node:crypto";
 import { AppConfig } from "../../config/env";
 import { AppLogger } from "../../config/logger";
-import { nowIso, sanitizePrice } from "../../shared/utils";
+import { nowIso, sanitizePrice, sleep } from "../../shared/utils";
 import { AddressInput, MarketplaceProductCandidate, MarketplaceSearchAdapter } from "../types";
 import { ScraperClient } from "../scraping/scraperClient";
 import { detectCaptchaHtml } from "../scraping/parserUtils";
-import { ScraperError, ScrapedProductDetails, SearchCandidateLink, StoreScraperExtractor } from "../scraping/types";
+import {
+  ScraperError,
+  ScrapedProductDetails,
+  ScraperFetchResult,
+  SearchCandidateLink,
+  StoreScraperExtractor,
+} from "../scraping/types";
 
 interface AdapterOptions {
   store: "amazon" | "mercadolivre" | "shopee";
@@ -13,6 +19,9 @@ interface AdapterOptions {
   config: AppConfig;
   logger: AppLogger;
 }
+
+const PRODUCT_HTTP_RETRY_ATTEMPTS = 1;
+const PRODUCT_HTTP_RETRY_BACKOFF_MS = 350;
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   let timeoutHandle: NodeJS.Timeout | null = null;
@@ -28,6 +37,33 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle);
   }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+
+  const safeLimit = Math.max(1, limit);
+  const output = new Array<R>(items.length);
+  let cursor = 0;
+
+  const runWorker = async () => {
+    while (true) {
+      const index = cursor;
+      cursor += 1;
+
+      if (index >= items.length) return;
+      output[index] = await worker(items[index]);
+    }
+  };
+
+  const workers = Array.from({ length: Math.min(safeLimit, items.length) }, () => runWorker());
+  await Promise.all(workers);
+
+  return output;
 }
 
 export abstract class BaseSearchAdapter implements MarketplaceSearchAdapter {
@@ -47,32 +83,23 @@ export abstract class BaseSearchAdapter implements MarketplaceSearchAdapter {
   }
 
   async searchProducts(query: string, address: AddressInput): Promise<MarketplaceProductCandidate[]> {
-    const runScrape = this.scrapeStore(query, address);
-
-    try {
-      return await withTimeout(
-        runScrape,
-        this.config.scraperTimeoutTotalMs,
-        `Timeout total na loja ${this.store}`,
-      );
-    } catch (error) {
-      if (this.config.enableMockSources) {
-        this.logger.warn(
-          {
-            store: this.store,
-            err: error,
-          },
-          "Scraping falhou; usando fallback mock por configuracao.",
-        );
-        return this.buildMockCandidates(query, address);
-      }
-      throw error;
-    }
+    return withTimeout(
+      this.scrapeStore(query, address),
+      this.config.scraperTimeoutTotalMs,
+      `Timeout total na loja ${this.store}`,
+    );
   }
 
   private async scrapeStore(query: string, address: AddressInput): Promise<MarketplaceProductCandidate[]> {
     const searchUrl = this.extractor.buildSearchUrl(query);
     const searchHtml = await this.fetchSearchPage(searchUrl);
+    let headlessAttemptsRemaining = Math.max(0, this.config.scraperMaxHeadlessAttemptsPerStore);
+
+    const claimHeadlessAttempt = (): boolean => {
+      if (headlessAttemptsRemaining <= 0) return false;
+      headlessAttemptsRemaining -= 1;
+      return true;
+    };
 
     const candidateLinks = this.extractor
       .extractSearchCandidates(searchHtml, searchUrl)
@@ -83,14 +110,27 @@ export abstract class BaseSearchAdapter implements MarketplaceSearchAdapter {
       throw new ScraperError("empty_result", `Nenhum candidato encontrado em ${this.store}.`, this.store);
     }
 
-    const settled = await Promise.allSettled(
-      candidateLinks.map((candidate) => this.scrapeProduct(candidate, address)),
+    const scraped = await mapWithConcurrency(
+      candidateLinks,
+      this.config.scraperProductConcurrency,
+      async (candidate) => {
+        try {
+          return await this.scrapeProduct(candidate, address, claimHeadlessAttempt);
+        } catch (error) {
+          this.logger.debug(
+            {
+              store: this.store,
+              productUrl: candidate.url,
+              err: error,
+            },
+            "Falha nao tratada ao extrair produto; item sera ignorado.",
+          );
+          return null;
+        }
+      },
     );
 
-    const results = settled
-      .filter((item): item is PromiseFulfilledResult<MarketplaceProductCandidate | null> => item.status === "fulfilled")
-      .map((item) => item.value)
-      .filter((item): item is MarketplaceProductCandidate => item !== null);
+    const results = scraped.filter((item): item is MarketplaceProductCandidate => item !== null);
 
     if (results.length === 0) {
       throw new ScraperError("parse_error", `Falha ao parsear produtos da loja ${this.store}.`, this.store);
@@ -125,33 +165,34 @@ export abstract class BaseSearchAdapter implements MarketplaceSearchAdapter {
   private async scrapeProduct(
     candidate: SearchCandidateLink,
     address: AddressInput,
+    claimHeadlessAttempt: () => boolean,
   ): Promise<MarketplaceProductCandidate | null> {
-    const hintDetails = this.buildHintDetails(candidate);
-
     try {
-      const http = await this.scraper.fetchHttp(candidate.url, this.config.scraperTimeoutHttpMs);
-      let details = this.extractor.extractProductDetails(http.html, candidate.url, address);
+      const http = await this.fetchProductHttpWithRetry(candidate.url);
 
-      if (!details || !this.hasMinimumDetails(details)) {
-        if (hintDetails) {
-          return this.toMarketplaceCandidate(candidate, hintDetails);
-        }
-
-        if (this.config.scraperUseHeadlessFallback) {
-          const headless = await this.scraper.fetchHeadless(candidate.url, this.config.scraperTimeoutHeadlessMs);
-          details = this.extractor.extractProductDetails(headless.html, candidate.url, address);
-        }
+      if (http.blocked) {
+        throw new ScraperError(
+          "blocked",
+          `Acesso bloqueado ao buscar detalhe do produto ${candidate.url}`,
+          this.store,
+        );
       }
 
+      const details = this.extractor.extractProductDetails(http.html, candidate.url, address);
       if (!details || !this.hasMinimumDetails(details)) {
-        return hintDetails ? this.toMarketplaceCandidate(candidate, hintDetails) : null;
+        return null;
       }
 
       return this.toMarketplaceCandidate(candidate, details);
     } catch (error) {
-      if (hintDetails) {
-        return this.toMarketplaceCandidate(candidate, hintDetails);
-      }
+      const headlessRecovered = await this.tryHeadlessRecovery(
+        candidate,
+        address,
+        error,
+        claimHeadlessAttempt,
+      );
+
+      if (headlessRecovered) return headlessRecovered;
 
       this.logger.debug(
         {
@@ -165,43 +206,84 @@ export abstract class BaseSearchAdapter implements MarketplaceSearchAdapter {
     }
   }
 
-  private buildHintDetails(candidate: SearchCandidateLink): ScrapedProductDetails | null {
-    if (!candidate.title || candidate.basePriceHint === null || candidate.basePriceHint === undefined) {
-      return null;
+  private async fetchProductHttpWithRetry(url: string): Promise<ScraperFetchResult> {
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt <= PRODUCT_HTTP_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.scraper.fetchHttp(url, this.config.scraperTimeoutHttpMs);
+      } catch (error) {
+        lastError = error;
+
+        const isLastAttempt = attempt >= PRODUCT_HTTP_RETRY_ATTEMPTS;
+        const isRetryable =
+          error instanceof ScraperError &&
+          (error.code === "timeout" || error.code === "network_error");
+
+        if (!isRetryable || isLastAttempt) {
+          throw error;
+        }
+
+        await sleep(PRODUCT_HTTP_RETRY_BACKOFF_MS);
+      }
     }
 
-    return {
-      title: candidate.title,
-      basePrice: candidate.basePriceHint,
-      referencePrice: candidate.referencePriceHint ?? null,
-      coupons: [],
-      shippingOptions: [],
-      taxAmount: null,
-      category: null,
-      storeItemId: candidate.storeItemIdHint ?? null,
-      sku: null,
-      gtin: null,
-      brand: null,
-      model: null,
-    };
+    throw lastError instanceof Error ? lastError : new Error("Falha desconhecida ao buscar produto.");
+  }
+
+  private async tryHeadlessRecovery(
+    candidate: SearchCandidateLink,
+    address: AddressInput,
+    error: unknown,
+    claimHeadlessAttempt: () => boolean,
+  ): Promise<MarketplaceProductCandidate | null> {
+    if (!this.config.scraperUseHeadlessFallback) return null;
+    if (!this.shouldUseHeadlessForError(error)) return null;
+    if (!claimHeadlessAttempt()) return null;
+
+    try {
+      const headless = await this.scraper.fetchHeadless(
+        candidate.url,
+        this.config.scraperTimeoutHeadlessMs,
+      );
+
+      if (headless.blocked) return null;
+
+      const details = this.extractor.extractProductDetails(headless.html, candidate.url, address);
+      if (!details || !this.hasMinimumDetails(details)) return null;
+
+      return this.toMarketplaceCandidate(candidate, details);
+    } catch {
+      return null;
+    }
+  }
+
+  private shouldUseHeadlessForError(error: unknown): boolean {
+    if (error instanceof ScraperError) {
+      return (
+        error.code === "timeout" ||
+        error.code === "blocked" ||
+        error.code === "network_error"
+      );
+    }
+
+    return false;
   }
 
   private hasMinimumDetails(details: ScrapedProductDetails): boolean {
-    return Boolean(details.title && Number.isFinite(details.basePrice));
+    return Boolean(
+      details.title &&
+      Number.isFinite(details.basePrice) &&
+      Number(details.basePrice) > 0,
+    );
   }
 
   private toMarketplaceCandidate(
     link: SearchCandidateLink,
     details: ScrapedProductDetails,
   ): MarketplaceProductCandidate {
-    const basePrice = sanitizePrice(
-      details.basePrice ?? link.basePriceHint ?? 0,
-    );
-
-    const referencePrice =
-      details.referencePrice ??
-      link.referencePriceHint ??
-      null;
+    const basePrice = sanitizePrice(Number(details.basePrice ?? 0));
+    const referencePrice = details.referencePrice ?? null;
 
     const storeItemId =
       details.storeItemId ??
@@ -242,40 +324,5 @@ export abstract class BaseSearchAdapter implements MarketplaceSearchAdapter {
     }
 
     return [...unique.values()];
-  }
-
-  private buildMockCandidates(query: string, address: AddressInput): MarketplaceProductCandidate[] {
-    const normalizedQuery = query.trim();
-    const zipPrefix = address.zipCode.replace(/\D/g, "").slice(0, 5) || "00000";
-
-    return Array.from({ length: this.config.searchMaxItemsPerStore }).map((_, index) => {
-      const seed = crypto
-        .createHash("sha1")
-        .update(`${this.store}|${normalizedQuery}|${zipPrefix}|${index}`)
-        .digest("hex");
-
-      const priceBase = Number.parseInt(seed.slice(0, 4), 16);
-      const current = sanitizePrice(120 + (priceBase % 2000));
-      const reference = sanitizePrice(current * 1.2);
-
-      return {
-        store: this.store,
-        storeItemId: `${this.store}-${seed.slice(0, 10)}`,
-        title: `${normalizedQuery} ${this.store.toUpperCase()} ${index + 1}`,
-        category: "marketplace",
-        productUrl: `${this.extractor.buildSearchUrl(query)}#item-${index + 1}`,
-        affiliateUrl: `${this.extractor.buildSearchUrl(query)}#item-${index + 1}`,
-        basePrice: current,
-        referencePrice: reference,
-        sku: null,
-        gtin: null,
-        brand: this.store.toUpperCase(),
-        model: null,
-        coupons: [],
-        shippingOptions: [],
-        taxAmount: null,
-        capturedAt: nowIso(),
-      };
-    });
   }
 }

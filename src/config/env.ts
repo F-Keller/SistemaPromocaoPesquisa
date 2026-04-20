@@ -23,14 +23,18 @@ const toList = (value: string | undefined): string[] =>
 export type AppConfig = ReturnType<typeof loadConfig>;
 
 export function loadConfig() {
+  const nodeEnv = process.env.NODE_ENV ?? "development";
+  const isTest = nodeEnv.toLowerCase() === "test";
+  const requestedEnableMockSources = toBoolean(process.env.ENABLE_MOCK_SOURCES, false);
+
   const sandboxGroupId = process.env.WHATSAPP_SANDBOX_GROUP_ID ?? "sandbox@g.us";
   const productionGroups = toList(process.env.WHATSAPP_GROUP_IDS).filter(
     (groupId) => groupId !== sandboxGroupId,
   );
 
   return {
-    nodeEnv: process.env.NODE_ENV ?? "development",
-    isTest: (process.env.NODE_ENV ?? "").toLowerCase() === "test",
+    nodeEnv,
+    isTest,
     port: toNumber(process.env.PORT, 3333),
     appBaseUrl: process.env.APP_BASE_URL ?? "http://localhost:3333",
     timezone: process.env.TIMEZONE ?? "America/Sao_Paulo",
@@ -45,12 +49,15 @@ export function loadConfig() {
     searchCleanupCron: process.env.SEARCH_CLEANUP_CRON ?? "*/15 * * * *",
     searchMaxResults: toNumber(process.env.SEARCH_MAX_RESULTS, 10),
     searchMaxItemsPerStore: toNumber(process.env.SEARCH_MAX_ITEMS_PER_STORE, 14),
+    searchCacheVersion: process.env.SEARCH_CACHE_VERSION ?? "v1-verified-price",
 
     scraperDefaultMode: (process.env.SCRAPER_DEFAULT_MODE ?? "scrape").toLowerCase(),
     scraperUseHeadlessFallback: toBoolean(process.env.SCRAPER_USE_HEADLESS_FALLBACK, true),
     scraperTimeoutTotalMs: toNumber(process.env.SCRAPER_TIMEOUT_TOTAL_MS, 20000),
     scraperTimeoutHttpMs: toNumber(process.env.SCRAPER_TIMEOUT_HTTP_MS, 6000),
     scraperTimeoutHeadlessMs: toNumber(process.env.SCRAPER_TIMEOUT_HEADLESS_MS, 10000),
+    scraperMaxHeadlessAttemptsPerStore: toNumber(process.env.SCRAPER_MAX_HEADLESS_ATTEMPTS_PER_STORE, 2),
+    scraperProductConcurrency: toNumber(process.env.SCRAPER_PRODUCT_CONCURRENCY, 2),
     scraperCacheTtlMinutes: toNumber(process.env.SCRAPER_CACHE_TTL_MINUTES, 10),
     scraperUserAgent:
       process.env.SCRAPER_USER_AGENT ??
@@ -78,7 +85,8 @@ export function loadConfig() {
     sendBaseBackoffSeconds: toNumber(process.env.SEND_BASE_BACKOFF_SECONDS, 30),
     dispatcherPollSeconds: toNumber(process.env.DISPATCHER_POLL_SECONDS, 8),
 
-    enableMockSources: toBoolean(process.env.ENABLE_MOCK_SOURCES, false),
+    enableMockSources: isTest && requestedEnableMockSources,
+    enableShopeeSearch: toBoolean(process.env.ENABLE_SHOPEE_SEARCH, false),
 
     store: {
       amazon: {

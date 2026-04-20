@@ -8,6 +8,7 @@ import {
   extractShippingOptions,
   extractTaxAmount,
   normalizeWhitespace,
+  parsePrimaryPriceText,
   parsePriceText,
   toAbsoluteUrl,
 } from "../parserUtils";
@@ -90,7 +91,8 @@ export class GenericStoreExtractor implements StoreScraperExtractor {
         if (!normalizedUrl) return;
 
         const title = normalizeWhitespace(anchor.text() || anchor.attr("title") || "") || null;
-        const priceHint = parsePriceText(anchor.closest("article, li, div").text());
+        const contextText = anchor.closest("article, li, div").text();
+        const priceHint = parsePrimaryPriceText(contextText) ?? parsePriceText(contextText);
 
         links.push({
           url: normalizedUrl,
@@ -128,23 +130,38 @@ export class GenericStoreExtractor implements StoreScraperExtractor {
 
     const title = jsonLd?.title ?? pickText(this.titleSelectors);
 
+    const metaPrice = parsePrimaryPriceText(
+      $("meta[itemprop='price']").attr("content") ||
+      $("meta[property='product:price:amount']").attr("content") ||
+      null,
+    );
+
+    const metaReferencePrice = parsePrimaryPriceText(
+      $("meta[property='product:price:standard_amount']").attr("content") ||
+      null,
+    );
+
     const basePrice =
       jsonLd?.basePrice ??
+      metaPrice ??
       (() => {
         for (const selector of this.priceSelectors) {
-          const parsed = parsePriceText($(selector).first().text());
+          const text = $(selector).first().text();
+          const parsed = parsePrimaryPriceText(text) ?? parsePriceText(text);
           if (parsed !== null) return parsed;
         }
         return null;
       })();
 
-    if (!title || basePrice === null) return null;
+    if (!title || basePrice === null || !Number.isFinite(basePrice) || basePrice <= 0) return null;
 
     const referencePrice =
       jsonLd?.referencePrice ??
+      metaReferencePrice ??
       (() => {
         for (const selector of this.referencePriceSelectors) {
-          const parsed = parsePriceText($(selector).first().text());
+          const text = $(selector).first().text();
+          const parsed = parsePrimaryPriceText(text) ?? parsePriceText(text);
           if (parsed !== null) return parsed;
         }
         return null;

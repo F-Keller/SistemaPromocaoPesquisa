@@ -80,17 +80,9 @@ export interface RankedSearchResult {
   store: MarketplaceName;
   storeItemId: string;
   title: string;
-  category?: string | null;
   productUrl: string;
   affiliateUrl: string;
-  basePrice: number;
-  referencePrice?: number | null;
-  appliedCoupon: CouponEvaluation | null;
-  coupons: CouponEvaluation[];
-  selectedShipping: ShippingOption | null;
-  taxAmount: number | null;
-  totalFinal: number | null;
-  isCostComplete: boolean;
+  verifiedPrice: number;
   matchType: "exact" | "similar";
   matchScore: number;
   warnings: string[];

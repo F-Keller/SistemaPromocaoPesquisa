@@ -920,20 +920,20 @@
       <div class="hero-grid">
         <div>
           <span class="eyebrow">Atelier de Ofertas</span>
-          <h1>Comparador de Precos com Cupom + Frete + Imposto</h1>
+          <h1>Comparador de Precos com Valor Verificado</h1>
           <p>
-            Uma experiencia premium para encontrar os menores custos finais entre marketplaces,
-            com regras de cupom, frete e imposto em um ranking unico.
+            Busque um produto, informe seu endereco e compare ofertas reais por preco
+            confirmado nas paginas dos marketplaces.
           </p>
 
           <div class="hero-badges">
             <div class="hero-badge">
               <strong>Top 10 em segundos</strong>
-              <span>Ranking por menor custo final.</span>
+              <span>Ranking por menor preco verificado.</span>
             </div>
             <div class="hero-badge">
-              <strong>Cupom + frete + imposto</strong>
-              <span>Transparencia completa no total.</span>
+              <strong>Sem valores artificiais</strong>
+              <span>Entra no ranking so o que for validado.</span>
             </div>
             <div class="hero-badge">
               <strong>Status em tempo real</strong>
@@ -948,7 +948,7 @@
           <ul class="hero-list">
             <li>Coleta de candidatos por marketplace</li>
             <li>Matching e validacao do produto</li>
-            <li>Enriquecimento com cupom, frete e imposto</li>
+            <li>Ordenacao por menor preco verificado</li>
           </ul>
         </aside>
       </div>
@@ -957,7 +957,7 @@
     <section class="search-shell panel reveal step-2">
       <div class="search-shell__head">
         <h2>Iniciar Nova Busca</h2>
-        <p>Informe produto e endereco para calcular o custo final real de cada oferta.</p>
+        <p>Informe produto e endereco para listar as ofertas reais por menor preco verificado.</p>
       </div>
 
       <form id="search-form">
@@ -1019,8 +1019,8 @@
 
     <section class="results-wrap reveal step-4">
       <div class="results-head">
-        <h2>Top 10 Ofertas</h2>
-        <span class="muted" id="results-caption">Resultados ordenados por menor custo final.</span>
+        <h2>Top 10 Ofertas Verificadas</h2>
+        <span class="muted" id="results-caption">Resultados ordenados por menor preco verificado.</span>
       </div>
       <div class="result-grid" id="results"></div>
     </section>
@@ -1085,7 +1085,7 @@
       }).join("");
 
       resultsEl.innerHTML = skeletonCards;
-      resultsCaption.textContent = "Consultando marketplaces e calculando custo final...";
+      resultsCaption.textContent = "Consultando marketplaces e validando preco de cada oferta...";
     };
 
     const renderStoreAudit = (snapshot) => {
@@ -1115,37 +1115,19 @@
 
     const renderResults = (results) => {
       if (!Array.isArray(results) || results.length === 0) {
-        resultsEl.innerHTML = "<p class='empty-state'>Sem resultados ainda. Tente outro termo ou aguarde a conclusao da coleta.</p>";
-        resultsCaption.textContent = "Nenhuma oferta disponivel neste momento.";
+        resultsEl.innerHTML = "<p class='empty-state'>Nenhuma oferta validada encontrada para este termo no momento.</p>";
+        resultsCaption.textContent = "Sem ofertas verificadas agora.";
         return;
       }
 
-      resultsCaption.textContent = String(results.length) + " ofertas ordenadas por menor custo final.";
+      resultsCaption.textContent = String(results.length) + " ofertas ordenadas por menor preco verificado.";
 
       resultsEl.innerHTML = results.map((item, index) => {
-        const couponHtml = item.appliedCoupon
-          ? "<div class='coupon-box'>" +
-              "<div class='coupon-head'>Cupom aplicado</div>" +
-              "<strong>" + escapeHtml(item.appliedCoupon.name) + " (" + escapeHtml(item.appliedCoupon.code) + ")</strong>" +
-              "<div class='muted'>" + escapeHtml(item.appliedCoupon.rules) + "</div>" +
-            "</div>"
-          : "<div class='coupon-box'><div class='coupon-head'>Cupom aplicado</div><div class='muted'>Sem cupom elegivel.</div></div>";
-
-        const couponsList = Array.isArray(item.coupons) && item.coupons.length > 0
-          ? item.coupons.map((couponItem) => escapeHtml(couponItem.code) + ": " + escapeHtml(couponItem.rules)).join(" | ")
-          : "Nenhum cupom oficial retornado";
-
         const warnings = (item.warnings || [])
           .map((warning) => "<div class='warning'>" + escapeHtml(warning) + "</div>")
           .join("");
 
-        const totalLabel = item.totalFinal === null ? "Custo incompleto" : fmtCurrency(item.totalFinal);
-        const freightLabel = item.selectedShipping
-          ? escapeHtml(item.selectedShipping.name) + " (" + fmtCurrency(item.selectedShipping.cost) + ")"
-          : "Indisponivel";
-        const taxLabel = item.taxAmount === null ? "Indisponivel" : fmtCurrency(item.taxAmount);
-        const pillClass = item.isCostComplete ? "complete" : "incomplete";
-        const pillLabel = item.isCostComplete ? "Custo completo" : "Custo incompleto";
+        const verifiedPriceLabel = fmtCurrency(item.verifiedPrice);
         const href = escapeHtml(item.affiliateUrl || item.productUrl);
         const rank = item.rank || index + 1;
         const delay = index * 85;
@@ -1154,7 +1136,7 @@
         return "<article class='card result-card' style='animation-delay:" + delay + "ms'>" +
           "<div class='card-top'>" +
             "<span class='rank'>#" + rank + "</span>" +
-            "<span class='pill " + pillClass + "'>" + pillLabel + "</span>" +
+            "<span class='pill complete'>Preco validado</span>" +
           "</div>" +
           "<h3>" + safeTitle + "</h3>" +
           "<div class='meta-row'>" +
@@ -1162,16 +1144,9 @@
             "<span class='match-chip'>match: " + escapeHtml(item.matchType) + "</span>" +
           "</div>" +
           "<div class='total-panel'>" +
-            "<span class='total-label'>Custo final</span>" +
-            "<p class='price'>" + totalLabel + "</p>" +
+            "<span class='total-label'>Preco verificado</span>" +
+            "<p class='price'>" + verifiedPriceLabel + "</p>" +
           "</div>" +
-          "<div class='facts'>" +
-            "<div class='fact'><span>Preco base</span><strong>" + fmtCurrency(item.basePrice) + "</strong></div>" +
-            "<div class='fact'><span>Frete</span><strong>" + freightLabel + "</strong></div>" +
-            "<div class='fact'><span>Imposto</span><strong>" + taxLabel + "</strong></div>" +
-          "</div>" +
-          couponHtml +
-          "<div class='coupon-alt'><strong>Cupons oficiais:</strong> " + couponsList + "</div>" +
           warnings +
           "<a class='link' href='" + href + "' target='_blank' rel='noreferrer'>Ir para oferta</a>" +
           "</article>";
@@ -1189,8 +1164,7 @@
       statusSummary.textContent =
         "coletados: " + (audit.totalCandidates || 0) +
         " • match: " + (audit.matchedCandidates || 0) +
-        " • completos: " + (audit.completeCandidates || 0) +
-        " • incompletos: " + (audit.incompleteCandidates || 0);
+        " • rankeados: " + (audit.enrichedCandidates || 0);
       statusError.textContent = snapshot.errorMessage || "";
       renderStoreAudit(snapshot);
       renderResults(snapshot.results || []);

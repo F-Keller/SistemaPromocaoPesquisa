@@ -148,7 +148,7 @@ describe("API integration", () => {
     if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
   });
 
-  it("deve criar busca e retornar top 10 com completos primeiro", async () => {
+  it("deve criar busca e retornar top 10 ordenado por menor preco verificado", async () => {
     const createRes = await request(app).post("/api/searches").send({
       query: "Notebook Gamer ZX",
       address,
@@ -162,17 +162,14 @@ describe("API integration", () => {
     expect(statusRes.body.status).toBe("completed");
     expect(statusRes.body.results.length).toBe(10);
 
-    const results = statusRes.body.results as Array<{ isCostComplete: boolean; appliedCoupon: unknown }>;
+    const results = statusRes.body.results as Array<{ verifiedPrice: number; totalFinal?: unknown }>;
 
-    const firstIncompleteIndex = results.findIndex((item) => !item.isCostComplete);
-    if (firstIncompleteIndex !== -1) {
-      const hasCompleteAfter = results
-        .slice(firstIncompleteIndex + 1)
-        .some((item) => item.isCostComplete);
-      expect(hasCompleteAfter).toBe(false);
+    for (let i = 1; i < results.length; i += 1) {
+      expect(results[i].verifiedPrice).toBeGreaterThanOrEqual(results[i - 1].verifiedPrice);
     }
 
-    expect(results[0].appliedCoupon).not.toBeNull();
+    expect(results[0].verifiedPrice).toBeTypeOf("number");
+    expect(Object.prototype.hasOwnProperty.call(results[0], "totalFinal")).toBe(false);
   });
 
   it("nao deve expor rotas antigas de deals", async () => {

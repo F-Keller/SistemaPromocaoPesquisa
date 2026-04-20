@@ -70,48 +70,40 @@ describe("pricing helpers", () => {
 });
 
 describe("ranking", () => {
-  it("deve ordenar completos primeiro e incompletos no final", () => {
-    const completeExpensive = {
+  it("deve ordenar por menor preco verificado", () => {
+    const expensive = {
       ...buildCandidate({
         storeItemId: "a",
         basePrice: 100,
-        coupons: [],
-        shippingOptions: [{ name: "Frete", cost: 20 }],
-        taxAmount: 20,
       }),
       matchType: "exact" as const,
       matchScore: 0.95,
     };
 
-    const completeCheap = {
+    const cheap = {
       ...buildCandidate({
         storeItemId: "b",
         basePrice: 90,
-        coupons: [],
-        shippingOptions: [{ name: "Frete", cost: 10 }],
-        taxAmount: 10,
       }),
       matchType: "exact" as const,
       matchScore: 0.9,
     };
 
-    const incompleteVeryCheap = {
+    const veryCheapSimilar = {
       ...buildCandidate({
         storeItemId: "c",
         basePrice: 20,
-        coupons: [],
-        shippingOptions: [],
-        taxAmount: null,
       }),
-      matchType: "exact" as const,
-      matchScore: 0.99,
+      matchType: "similar" as const,
+      matchScore: 0.5,
     };
 
-    const ranked = rankResults([completeExpensive, completeCheap, incompleteVeryCheap], 10);
+    const ranked = rankResults([expensive, cheap, veryCheapSimilar], 10);
 
-    expect(ranked[0].storeItemId).toBe("b");
-    expect(ranked[1].storeItemId).toBe("a");
-    expect(ranked[2].storeItemId).toBe("c");
-    expect(ranked[2].isCostComplete).toBe(false);
+    expect(ranked[0].storeItemId).toBe("c");
+    expect(ranked[1].storeItemId).toBe("b");
+    expect(ranked[2].storeItemId).toBe("a");
+    expect(ranked[0].verifiedPrice).toBe(20);
+    expect(ranked[0].warnings.length).toBeGreaterThan(0);
   });
 });

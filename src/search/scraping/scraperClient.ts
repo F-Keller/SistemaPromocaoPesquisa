@@ -20,7 +20,7 @@ export class ScraperClient {
       });
 
       const html = await response.text();
-      const blocked = detectBlockedHtml(html);
+      const blocked = response.status === 403 || response.status === 429 || detectBlockedHtml(html);
 
       return {
         url,

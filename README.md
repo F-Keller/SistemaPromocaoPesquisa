@@ -1,12 +1,10 @@
-# Comparador de Precos (MVP)
+ï»¿# Comparador de Precos (MVP)
 
-Site publico para buscar produtos em marketplaces e comparar custo final:
+Site publico para buscar produtos em marketplaces e comparar ofertas reais por menor preco verificado:
 
-- Preco base
-- Melhor cupom oficial aplicado automaticamente
-- Menor frete disponivel para o endereco informado
-- Imposto (quando retornado pela fonte)
-- Ranking dos 10 menores custos finais
+- Coleta e validacao de preco direto na pagina do produto
+- Ranking do menor para o maior valor
+- Ate 10 resultados (pode retornar menos quando nao houver ofertas validadas)
 
 ## Requisitos
 
@@ -44,7 +42,9 @@ Abra no navegador:
 
 ## Observacoes
 
-- O fluxo eh assíncrono: crie a busca e consulte progresso via polling em `/api/searches/:id`.
+- O fluxo eh assincrono: crie a busca e consulte progresso via polling em `/api/searches/:id`.
 - Endereco do usuario nao eh persistido em tabela de buscas.
 - O cache do scraping usa hash de `query+CEP` por 10 minutos (configuravel em `SCRAPER_CACHE_TTL_MINUTES`).
 - Se uma loja bloquear (captcha/anti-bot/timeout), ela eh ignorada e a busca segue com as demais.
+- Runtime oficial de desenvolvimento: `src` com `npm run dev`.
+- `npm start` recompila o `dist` antes de subir para evitar divergencia entre codigo-fonte e build.

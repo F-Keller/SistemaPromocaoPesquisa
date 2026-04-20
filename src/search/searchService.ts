@@ -37,11 +37,12 @@ interface StoreSearchResult {
 
 const normalizeQuery = (query: string) => query.trim().toLowerCase().replace(/\s+/g, " ");
 const normalizeZipCode = (value: string) => value.replace(/\D/g, "");
+const isValidPrice = (value: number) => Number.isFinite(value) && Number(value) > 0;
 
-const hashCacheKey = (query: string, zipCode: string): string =>
+const hashCacheKey = (query: string, zipCode: string, cacheVersion: string): string =>
   crypto
     .createHash("sha256")
-    .update(`${normalizeQuery(query)}|${normalizeZipCode(zipCode)}`)
+    .update(`${cacheVersion}|${normalizeQuery(query)}|${normalizeZipCode(zipCode)}`)
     .digest("hex");
 
 export class SearchService {
@@ -97,6 +98,7 @@ export class SearchService {
       adapters: this.adapters.map((adapter) => adapter.store),
       scraperMode: this.config.scraperDefaultMode,
       cacheTtlMinutes: this.config.scraperCacheTtlMinutes,
+      cacheVersion: this.config.searchCacheVersion,
     };
   }
 
@@ -135,10 +137,10 @@ export class SearchService {
     });
 
     try {
-      const cacheKey = hashCacheKey(input.query, input.address.zipCode);
+      const cacheKey = hashCacheKey(input.query, input.address.zipCode, this.config.searchCacheVersion);
       const cached = this.repository.getCachedSearch(cacheKey);
 
-      if (cached && cached.results.length > 0) {
+      if (cached && cached.results.length > 0 && cached.results.every((item) => this.isValidRankedResult(item))) {
         this.finishFromCache(searchId, cached);
         return;
       }
@@ -151,10 +153,11 @@ export class SearchService {
       const storeAudit: SearchAudit["stores"] = [];
 
       for (const result of storeResults) {
-        collected.push(...result.candidates);
+        const verifiedCandidates = result.candidates.filter((candidate) => this.isVerifiedCandidate(candidate));
+        collected.push(...verifiedCandidates);
         storeAudit.push({
           store: result.store,
-          fetched: result.candidates.length,
+          fetched: verifiedCandidates.length,
           errors: result.errors,
         });
       }
@@ -186,8 +189,8 @@ export class SearchService {
       });
 
       const ranked = rankResults(matched, this.config.searchMaxResults);
-      const completeCandidates = ranked.filter((item) => item.isCostComplete).length;
-      const incompleteCandidates = ranked.length - completeCandidates;
+      const completeCandidates = ranked.length;
+      const incompleteCandidates = 0;
 
       const finalAudit: SearchAudit = {
         ...afterMatchAudit,
@@ -295,5 +298,26 @@ export class SearchService {
       audit,
       results,
     });
+  }
+
+  private isVerifiedCandidate(candidate: MarketplaceProductCandidate): boolean {
+    return Boolean(
+      candidate.title &&
+      candidate.title.trim().length > 0 &&
+      candidate.productUrl &&
+      candidate.affiliateUrl &&
+      isValidPrice(candidate.basePrice),
+    );
+  }
+
+  private isValidRankedResult(result: RankedSearchResult): boolean {
+    return Boolean(
+      result.store &&
+      result.storeItemId &&
+      result.title &&
+      result.productUrl &&
+      result.affiliateUrl &&
+      isValidPrice(result.verifiedPrice),
+    );
   }
 }
