@@ -14,8 +14,14 @@ export function createMercadoLivreExtractor(searchUrlTemplate: string) {
       "h1",
     ],
     priceSelectors: [
-      ".andes-money-amount__fraction",
       ".ui-pdp-price__second-line .andes-money-amount__fraction",
+      "[itemprop='offers'] .andes-money-amount",
+      ".poly-price__current .andes-money-amount",
+      ".poly-component__price .andes-money-amount",
+      ".ui-search-price__second-line .andes-money-amount",
+      ".andes-money-amount[aria-label]",
+      ".andes-money-amount",
+      ".andes-money-amount__fraction",
       "[data-testid='price-part']",
     ],
     referencePriceSelectors: [
@@ -37,6 +43,14 @@ export function createMercadoLivreExtractor(searchUrlTemplate: string) {
     categorySelectors: [
       "ol.andes-breadcrumb",
       ".ui-pdp-breadcrumb__container",
+    ],
+    imageSelectors: [
+      "img.ui-pdp-image",
+      ".ui-pdp-gallery__figure img",
+      ".ui-pdp-gallery img",
+      "img[data-zoom]",
+      "img[data-src]",
+      "img[data-image]",
     ],
     couponSelectors: [
       "[class*='coupon']",

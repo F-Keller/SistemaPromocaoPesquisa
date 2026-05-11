@@ -1,6 +1,7 @@
 import { AppConfig } from "../../config/env";
 import { AppLogger } from "../../config/logger";
 import { detectBlockedHtml } from "./parserUtils";
+import { getStealthBrowser } from "./stealthBrowser";
 import { ScraperError, ScraperFetchResult } from "./types";
 
 export class ScraperClient {
@@ -45,26 +46,9 @@ export class ScraperClient {
       throw new ScraperError("headless_error", "Headless fallback desabilitado por configuracao.");
     }
 
-    let browser: any = null;
-
     try {
-      const playwright = await import("playwright");
-      browser = await playwright.chromium.launch({ headless: true });
-      const context = await browser.newContext({
-        userAgent: this.config.scraperUserAgent,
-      });
-      const page = await context.newPage();
-
-      await page.goto(url, {
-        timeout: timeoutMs,
-        waitUntil: "domcontentloaded",
-      });
-
-      await page.waitForTimeout(1200);
-      const html = await page.content();
+      const html = await getStealthBrowser(this.config, this.logger).fetchHtml(url, timeoutMs);
       const blocked = detectBlockedHtml(html);
-
-      await context.close();
 
       return {
         url,
@@ -75,10 +59,6 @@ export class ScraperClient {
       const message = (error as Error).message;
       this.logger.warn({ url, err: error }, "Falha no fallback headless.");
       throw new ScraperError("headless_error", `Falha headless em ${url}: ${message}`);
-    } finally {
-      if (browser) {
-        await browser.close().catch(() => undefined);
-      }
     }
   }
 }

@@ -30,6 +30,7 @@ export interface ScraperFetchResult {
 export interface SearchCandidateLink {
   url: string;
   title?: string | null;
+  imageUrlHint?: string | null;
   basePriceHint?: number | null;
   referencePriceHint?: number | null;
   storeItemIdHint?: string | null;
@@ -39,6 +40,7 @@ export interface ScrapedProductDetails {
   storeItemId?: string | null;
   title?: string | null;
   category?: string | null;
+  imageUrl?: string | null;
   basePrice?: number | null;
   referencePrice?: number | null;
   sku?: string | null;

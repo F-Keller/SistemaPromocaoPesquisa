@@ -86,4 +86,27 @@ describe("search cache", () => {
 
     expect(cached).toBeNull();
   });
+
+  it("deve deletar apenas a chave de cache solicitada", () => {
+    const payload = {
+      createdAt: new Date().toISOString(),
+      audit: {
+        totalCandidates: 0,
+        matchedCandidates: 0,
+        enrichedCandidates: 0,
+        completeCandidates: 0,
+        incompleteCandidates: 0,
+        stores: [],
+      },
+      results: [],
+    };
+
+    repository.upsertCachedSearch("cache-key-delete", payload, 10);
+    repository.upsertCachedSearch("cache-key-keep", payload, 10);
+
+    repository.deleteCachedSearch("cache-key-delete");
+
+    expect(repository.getCachedSearch("cache-key-delete")).toBeNull();
+    expect(repository.getCachedSearch("cache-key-keep")).not.toBeNull();
+  });
 });

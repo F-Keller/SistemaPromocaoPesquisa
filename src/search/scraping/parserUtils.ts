@@ -104,6 +104,13 @@ export const parsePrimaryPriceText = (raw: string | null | undefined): number | 
 
   const clean = normalizeWhitespace(raw);
 
+  const reaisMatch = clean.match(/([\d.]+)\s*reais(?:\s*com\s*(\d{1,2})\s*centavos?)?/i);
+  if (reaisMatch?.[1]) {
+    const cents = reaisMatch[2] ? reaisMatch[2].padStart(2, "0") : "00";
+    const parsed = parseSinglePriceToken(`${reaisMatch[1]},${cents}`);
+    if (parsed !== null) return parsed;
+  }
+
   const porMatch = clean.match(/\bpor\s*(?:apenas\s*)?(?:r\$\s*)?([\d.,]+)/i);
   if (porMatch?.[1]) {
     const parsed = parseSinglePriceToken(porMatch[1]);
@@ -120,25 +127,24 @@ export const parsePrimaryPriceText = (raw: string | null | undefined): number | 
   if (tokens.length === 0) return null;
 
   const installmentRegex = /\b\d{1,2}\s*x\s*(?:de\s*)?(?:r\$\s*)?([\d.,]+)/gi;
-  const installmentValues = new Set<number>();
+  const installmentRanges: Array<{ start: number; end: number }> = [];
   let installmentMatch = installmentRegex.exec(clean);
 
   while (installmentMatch) {
-    const parsed = parseSinglePriceToken(installmentMatch[1]);
-    if (parsed !== null) {
-      installmentValues.add(parsed);
-    }
+    installmentRanges.push({
+      start: installmentMatch.index,
+      end: installmentMatch.index + installmentMatch[0].length,
+    });
     installmentMatch = installmentRegex.exec(clean);
   }
 
-  const filtered = installmentValues.size > 0
-    ? tokens.filter((token) => {
-        for (const installment of installmentValues) {
-          if (Math.abs(token.value - installment) < 0.01) return false;
-        }
-        return true;
-      })
+  const filtered = installmentRanges.length > 0
+    ? tokens.filter((token) =>
+        !installmentRanges.some((range) => token.index >= range.start && token.index < range.end),
+      )
     : tokens;
+
+  if (installmentRanges.length > 0 && filtered.length === 0) return null;
 
   const targetTokens = filtered.length > 0 ? filtered : tokens;
 

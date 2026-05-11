@@ -32,6 +32,8 @@ interface SearchResultRow {
   rank_position: number;
   store: string;
   title: string;
+  image_url: string | null;
+  affiliate_url: string | null;
   base_price: number;
   total_final: number | null;
   is_cost_complete: number;
@@ -94,6 +96,8 @@ export class SearchRepository {
         rank_position INTEGER NOT NULL,
         store TEXT NOT NULL,
         title TEXT NOT NULL,
+        image_url TEXT,
+        affiliate_url TEXT,
         base_price REAL NOT NULL,
         total_final REAL,
         is_cost_complete INTEGER NOT NULL,
@@ -114,6 +118,9 @@ export class SearchRepository {
       CREATE INDEX IF NOT EXISTS idx_search_results_search_rank ON search_results(search_id, rank_position);
       CREATE INDEX IF NOT EXISTS idx_search_cache_expires ON search_cache(expires_at);
     `);
+
+    this.ensureSearchResultsImageUrlColumn();
+    this.ensureSearchResultsAffiliateUrlColumn();
   }
 
   close(): void {
@@ -185,8 +192,9 @@ export class SearchRepository {
     const deleteStmt = this.db.prepare(`DELETE FROM search_results WHERE search_id = ?`);
     const insertStmt = this.db.prepare(
       `INSERT INTO search_results (
-        search_id, rank_position, store, title, base_price, total_final, is_cost_complete, payload_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        search_id, rank_position, store, title, image_url, affiliate_url, base_price, total_final,
+        is_cost_complete, payload_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     const tx = this.db.transaction(() => {
@@ -197,6 +205,8 @@ export class SearchRepository {
           result.rank,
           result.store,
           result.title,
+          result.imageUrl ?? null,
+          result.affiliateUrl,
           result.verifiedPrice,
           result.verifiedPrice,
           1,
@@ -226,7 +236,19 @@ export class SearchRepository {
       .all(searchId) as SearchResultRow[];
 
     const audit = this.parseAudit(row.audit_json);
-    const results = resultsRows.map((result) => JSON.parse(result.payload_json) as RankedSearchResult);
+    const results = resultsRows.map((result) => {
+      const payload = JSON.parse(result.payload_json) as RankedSearchResult;
+      const normalized: RankedSearchResult = {
+        ...payload,
+        affiliateUrl: payload.affiliateUrl || result.affiliate_url || payload.productUrl,
+      };
+
+      if (result.image_url === null) return normalized;
+      return {
+        ...normalized,
+        imageUrl: result.image_url,
+      };
+    });
 
     return {
       id: row.id,
@@ -290,6 +312,10 @@ export class SearchRepository {
       .run(cacheKey, JSON.stringify(payload), now, expiresAt);
   }
 
+  deleteCachedSearch(cacheKey: string): void {
+    this.db.prepare(`DELETE FROM search_cache WHERE cache_key = ?`).run(cacheKey);
+  }
+
   cleanupExpiredSearches(now = nowIso()): number {
     const expiredIds = this.db
       .prepare(`SELECT id FROM searches WHERE expires_at < ?`)
@@ -321,6 +347,28 @@ export class SearchRepository {
       };
     } catch {
       return DEFAULT_AUDIT;
+    }
+  }
+
+  private ensureSearchResultsImageUrlColumn(): void {
+    const columns = this.db
+      .prepare(`PRAGMA table_info(search_results)`)
+      .all() as Array<{ name: string }>;
+
+    const hasImageUrl = columns.some((column) => column.name === "image_url");
+    if (!hasImageUrl) {
+      this.db.prepare(`ALTER TABLE search_results ADD COLUMN image_url TEXT`).run();
+    }
+  }
+
+  private ensureSearchResultsAffiliateUrlColumn(): void {
+    const columns = this.db
+      .prepare(`PRAGMA table_info(search_results)`)
+      .all() as Array<{ name: string }>;
+
+    const hasAffiliateUrl = columns.some((column) => column.name === "affiliate_url");
+    if (!hasAffiliateUrl) {
+      this.db.prepare(`ALTER TABLE search_results ADD COLUMN affiliate_url TEXT`).run();
     }
   }
 }

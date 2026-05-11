@@ -4,7 +4,7 @@ Site publico para buscar produtos em marketplaces e comparar ofertas reais por m
 
 - Coleta e validacao de preco direto na pagina do produto
 - Ranking do menor para o maior valor
-- Ate 10 resultados (pode retornar menos quando nao houver ofertas validadas)
+- Ate 20 resultados (pode retornar menos quando nao houver ofertas validadas)
 
 ## Requisitos
 

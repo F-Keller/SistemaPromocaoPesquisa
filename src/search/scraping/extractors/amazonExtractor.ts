@@ -15,7 +15,8 @@ export function createAmazonExtractor(searchUrlTemplate: string) {
       "h1",
     ],
     priceSelectors: [
-      ".a-price .a-offscreen",
+      ".a-price:not(.a-text-price) > .a-offscreen",
+      ".a-price:not(.a-text-price) .a-offscreen",
       "span.a-price-whole",
       "[data-asin-price]",
     ],
@@ -38,6 +39,14 @@ export function createAmazonExtractor(searchUrlTemplate: string) {
     categorySelectors: [
       "#wayfinding-breadcrumbs_feature_div",
       "ul.a-unordered-list.a-horizontal.a-size-small",
+    ],
+    imageSelectors: [
+      "#landingImage",
+      "#imgTagWrapperId img",
+      "#main-image-container img",
+      "img.a-dynamic-image",
+      "img[data-a-dynamic-image]",
+      "img[data-old-hires]",
     ],
     couponSelectors: [
       "[id*='coupon']",

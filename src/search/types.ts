@@ -48,6 +48,7 @@ export interface MarketplaceProductCandidate {
   storeItemId: string;
   title: string;
   category?: string | null;
+  imageUrl?: string | null;
   productUrl: string;
   affiliateUrl: string;
   basePrice: number;
@@ -60,6 +61,7 @@ export interface MarketplaceProductCandidate {
   shippingOptions: ShippingOption[];
   taxAmount?: number | null;
   capturedAt: string;
+  priceSource?: "product" | "listing";
 }
 
 export interface CouponEvaluation {
@@ -80,6 +82,7 @@ export interface RankedSearchResult {
   store: MarketplaceName;
   storeItemId: string;
   title: string;
+  imageUrl?: string | null;
   productUrl: string;
   affiliateUrl: string;
   verifiedPrice: number;

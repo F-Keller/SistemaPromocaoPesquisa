@@ -25,10 +25,25 @@ interface GenericExtractorOptions {
   brandSelectors: string[];
   modelSelectors: string[];
   categorySelectors: string[];
+  imageSelectors?: string[];
   couponSelectors: string[];
   shippingSelectors: string[];
   taxSelectors: string[];
 }
+
+const IMAGE_ATTRIBUTES = [
+  "src",
+  "data-src",
+  "data-image",
+  "data-original",
+  "data-lazy",
+  "data-zoom",
+  "data-hires",
+  "data-old-hires",
+  "srcset",
+  "data-srcset",
+  "data-a-dynamic-image",
+];
 
 const safeDecode = (value: string): string => {
   try {
@@ -50,6 +65,7 @@ export class GenericStoreExtractor implements StoreScraperExtractor {
   private readonly brandSelectors: string[];
   private readonly modelSelectors: string[];
   private readonly categorySelectors: string[];
+  private readonly imageSelectors: string[];
   private readonly couponSelectors: string[];
   private readonly shippingSelectors: string[];
   private readonly taxSelectors: string[];
@@ -65,6 +81,7 @@ export class GenericStoreExtractor implements StoreScraperExtractor {
     this.brandSelectors = options.brandSelectors;
     this.modelSelectors = options.modelSelectors;
     this.categorySelectors = options.categorySelectors;
+    this.imageSelectors = options.imageSelectors ?? [];
     this.couponSelectors = options.couponSelectors;
     this.shippingSelectors = options.shippingSelectors;
     this.taxSelectors = options.taxSelectors;
@@ -91,8 +108,7 @@ export class GenericStoreExtractor implements StoreScraperExtractor {
         if (!normalizedUrl) return;
 
         const title = normalizeWhitespace(anchor.text() || anchor.attr("title") || "") || null;
-        const contextText = anchor.closest("article, li, div").text();
-        const priceHint = parsePrimaryPriceText(contextText) ?? parsePriceText(contextText);
+        const priceHint = this.extractSearchPriceHint($, anchor);
 
         links.push({
           url: normalizedUrl,
@@ -144,33 +160,22 @@ export class GenericStoreExtractor implements StoreScraperExtractor {
     const basePrice =
       jsonLd?.basePrice ??
       metaPrice ??
-      (() => {
-        for (const selector of this.priceSelectors) {
-          const text = $(selector).first().text();
-          const parsed = parsePrimaryPriceText(text) ?? parsePriceText(text);
-          if (parsed !== null) return parsed;
-        }
-        return null;
-      })();
+      this.extractPriceFromSelectors($, this.priceSelectors);
 
     if (!title || basePrice === null || !Number.isFinite(basePrice) || basePrice <= 0) return null;
 
     const referencePrice =
       jsonLd?.referencePrice ??
       metaReferencePrice ??
-      (() => {
-        for (const selector of this.referencePriceSelectors) {
-          const text = $(selector).first().text();
-          const parsed = parsePrimaryPriceText(text) ?? parsePriceText(text);
-          if (parsed !== null) return parsed;
-        }
-        return null;
-      })();
+      this.extractPriceFromSelectors($, this.referencePriceSelectors, undefined, {
+        skipReference: false,
+      });
 
     const sku = jsonLd?.sku ?? pickText(this.skuSelectors);
     const brand = jsonLd?.brand ?? pickText(this.brandSelectors);
     const model = pickText(this.modelSelectors);
     const category = jsonLd?.category ?? pickText(this.categorySelectors);
+    const imageUrl = this.extractImageUrl($, productUrl);
 
     const coupons: CouponCandidate[] = [
       ...extractCouponsFromText(html),
@@ -195,6 +200,7 @@ export class GenericStoreExtractor implements StoreScraperExtractor {
       title,
       storeItemId: this.extractStoreItemId(productUrl),
       category,
+      imageUrl,
       basePrice,
       referencePrice,
       sku,
@@ -223,6 +229,136 @@ export class GenericStoreExtractor implements StoreScraperExtractor {
 
     const childHref = anchor.find("a").first().attr("href");
     return childHref?.trim() || null;
+  }
+
+  private extractSearchPriceHint($: ReturnType<typeof loadHtml>, anchor: any): number | null {
+    const context = anchor.closest("article, li, div");
+    const scope = context.length > 0 ? context : anchor;
+
+    if (this.store === "amazon" || this.store === "mercadolivre") {
+      return this.extractPriceFromSelectors($, this.priceSelectors, scope);
+    }
+
+    const contextText = scope.text();
+    return parsePrimaryPriceText(contextText) ?? parsePriceText(contextText);
+  }
+
+  private extractPriceFromSelectors(
+    $: ReturnType<typeof loadHtml>,
+    selectors: string[],
+    scope?: any,
+    options: { skipReference?: boolean } = {},
+  ): number | null {
+    const root = scope ?? $.root();
+    const skipReference = options.skipReference ?? true;
+
+    for (const selector of selectors) {
+      const elements = this.findElements($, root, selector);
+
+      for (const element of elements) {
+        const node = $(element);
+        if (this.shouldSkipPriceElement($, node, root, skipReference)) continue;
+
+        const text = this.readPriceTextFromElement(node);
+        if (!text || this.isInstallmentText(text)) continue;
+
+        const parsed = parsePrimaryPriceText(text) ?? parsePriceText(text);
+        if (parsed !== null) return parsed;
+      }
+    }
+
+    return null;
+  }
+
+  private findElements($: ReturnType<typeof loadHtml>, scope: any, selector: string): any[] {
+    const elements: any[] = [];
+
+    try {
+      if (scope.is?.(selector)) {
+        elements.push(scope.get(0));
+      }
+    } catch {
+      // Ignore invalid selector matches from third-party markup.
+    }
+
+    try {
+      elements.push(...scope.find(selector).toArray());
+    } catch {
+      elements.push(...$(selector).toArray());
+    }
+
+    return elements.filter(Boolean);
+  }
+
+  private shouldSkipPriceElement(
+    $: ReturnType<typeof loadHtml>,
+    node: any,
+    scope: any,
+    skipReference: boolean,
+  ): boolean {
+    if (this.store === "amazon") {
+      return skipReference && node.closest(".a-text-price").length > 0;
+    }
+
+    if (this.store !== "mercadolivre") {
+      return false;
+    }
+
+    if (
+      skipReference &&
+      node.closest(
+        ".andes-money-amount--previous, .andes-money-amount--strike, .andes-money-amount--discount, s, del, [class*='previous'], [class*='old-price'], [class*='original']",
+      ).length > 0
+    ) {
+      return true;
+    }
+
+    const contexts = [
+      node,
+      node.closest(".poly-price__installments"),
+      node.closest(".ui-search-installments"),
+      node.parent(),
+      node.parent().parent(),
+    ];
+
+    for (const context of contexts) {
+      if (!context || context.length === 0) continue;
+      const text = normalizeWhitespace(context.text() || "");
+      const amountCount = context.find(".andes-money-amount").length;
+      if (this.isInstallmentText(text) && amountCount <= 1) return true;
+    }
+
+    const scopedText = normalizeWhitespace(scope.text?.() || "");
+    return this.isInstallmentText(scopedText) && scope.find?.(".andes-money-amount").length <= 1;
+  }
+
+  private readPriceTextFromElement(node: any): string | null {
+    if (this.store === "mercadolivre") {
+      const amount = node.is(".andes-money-amount") ? node : node.closest(".andes-money-amount");
+      if (amount.length > 0) {
+        const fraction = normalizeWhitespace(amount.find(".andes-money-amount__fraction").first().text() || "");
+        const cents = normalizeWhitespace(amount.find(".andes-money-amount__cents").first().text() || "");
+        if (fraction) return cents ? `R$ ${fraction},${cents}` : `R$ ${fraction},00`;
+
+        const aria = normalizeWhitespace(amount.attr("aria-label") || "");
+        if (aria) return aria;
+      }
+    }
+
+    const text = normalizeWhitespace(
+      node.text() ||
+      node.attr("aria-label") ||
+      node.attr("title") ||
+      node.attr("content") ||
+      node.attr("value") ||
+      "",
+    );
+
+    return text || null;
+  }
+
+  private isInstallmentText(value: string | null | undefined): boolean {
+    return /\b\d{1,2}\s*x\b|\bem\s+\d{1,2}\s*x\b|\bparcel|sem\s+juros/i.test(String(value ?? ""));
   }
 
   private normalizeCandidateUrl(rawHref: string, searchUrl: string): string | null {
@@ -305,6 +441,100 @@ export class GenericStoreExtractor implements StoreScraperExtractor {
   private extractStoreItemId(productUrl: string): string | null {
     const match = productUrl.match(/\/([A-Z0-9]{8,15})(?:[/?]|$)/i);
     return match ? match[1] : null;
+  }
+
+  private extractImageUrl($: ReturnType<typeof loadHtml>, productUrl: string): string | null {
+    for (const selector of this.imageSelectors) {
+      const elements = $(selector).toArray();
+
+      for (const element of elements) {
+        const image = this.extractImageFromElement($(element), productUrl);
+        if (image) return image;
+      }
+    }
+
+    return null;
+  }
+
+  private extractImageFromElement(element: any, productUrl: string): string | null {
+    for (const attr of IMAGE_ATTRIBUTES) {
+      const raw = element.attr(attr);
+      if (!raw) continue;
+
+      const image =
+        attr === "srcset" || attr === "data-srcset"
+          ? this.normalizeImageUrl(this.pickBestSrcSetUrl(raw), productUrl)
+          : attr === "data-a-dynamic-image"
+            ? this.normalizeImageUrl(this.pickBestDynamicImageUrl(raw), productUrl)
+            : this.normalizeImageUrl(raw, productUrl);
+
+      if (image) return image;
+    }
+
+    return null;
+  }
+
+  private normalizeImageUrl(raw: string | null, productUrl: string): string | null {
+    if (!raw) return null;
+
+    const clean = normalizeWhitespace(raw)
+      .replace(/^url\(["']?/, "")
+      .replace(/["']?\)$/, "");
+
+    if (this.isInvalidImageUrl(clean)) return null;
+    return toAbsoluteUrl(clean, productUrl);
+  }
+
+  private pickBestSrcSetUrl(raw: string): string | null {
+    const candidates = raw
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item, index) => {
+        const [url, descriptor] = item.split(/\s+/);
+        const numeric = Number.parseFloat(descriptor ?? "");
+        const score = Number.isFinite(numeric) ? numeric : index;
+        return { url, score };
+      })
+      .filter((item) => item.url);
+
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates[0].url;
+  }
+
+  private pickBestDynamicImageUrl(raw: string): string | null {
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const candidates = Object.entries(parsed)
+        .map(([url, dimensions]) => {
+          const [width, height] = Array.isArray(dimensions) ? dimensions : [];
+          const score = Number(width ?? 0) * Number(height ?? 0);
+          return { url, score: Number.isFinite(score) ? score : 0 };
+        })
+        .filter((item) => item.url);
+
+      if (candidates.length === 0) return null;
+      candidates.sort((a, b) => b.score - a.score);
+      return candidates[0].url;
+    } catch {
+      return null;
+    }
+  }
+
+  private isInvalidImageUrl(value: string): boolean {
+    const normalized = value.trim().toLowerCase();
+    return (
+      normalized.length === 0 ||
+      normalized === "#" ||
+      normalized === "about:blank" ||
+      normalized.startsWith("data:") ||
+      normalized.includes("placeholder") ||
+      normalized.includes("transparent") ||
+      normalized.includes("spacer") ||
+      normalized.includes("pixel.gif") ||
+      normalized.includes("no-image")
+    );
   }
 
   private extractCouponsFromSelectors($: ReturnType<typeof loadHtml>): CouponCandidate[] {

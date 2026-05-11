@@ -47,9 +47,10 @@ export function loadConfig() {
 
     searchTtlMinutes: toNumber(process.env.SEARCH_TTL_MINUTES, 60),
     searchCleanupCron: process.env.SEARCH_CLEANUP_CRON ?? "*/15 * * * *",
-    searchMaxResults: toNumber(process.env.SEARCH_MAX_RESULTS, 10),
-    searchMaxItemsPerStore: toNumber(process.env.SEARCH_MAX_ITEMS_PER_STORE, 14),
-    searchCacheVersion: process.env.SEARCH_CACHE_VERSION ?? "v1-verified-price",
+    searchMaxResults: toNumber(process.env.SEARCH_MAX_RESULTS, 30),
+    searchMaxResultsPerStore: toNumber(process.env.SEARCH_MAX_RESULTS_PER_STORE, 10),
+    searchMaxItemsPerStore: toNumber(process.env.SEARCH_MAX_ITEMS_PER_STORE, 30),
+    searchCacheVersion: process.env.SEARCH_CACHE_VERSION ?? "v7-shopee-session",
 
     scraperDefaultMode: (process.env.SCRAPER_DEFAULT_MODE ?? "scrape").toLowerCase(),
     scraperUseHeadlessFallback: toBoolean(process.env.SCRAPER_USE_HEADLESS_FALLBACK, true),
@@ -62,6 +63,11 @@ export function loadConfig() {
     scraperUserAgent:
       process.env.SCRAPER_USER_AGENT ??
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    proxyUrl: process.env.PROXY_URL?.trim() ?? "",
+    shopeeBrowserProfileDir: path.resolve(
+      process.cwd(),
+      process.env.SHOPEE_BROWSER_PROFILE_DIR ?? "./data/browser-profiles/shopee",
+    ),
 
     enableScrapingFallback: toBoolean(process.env.ENABLE_SCRAPING_FALLBACK, true),
     externalRequestTimeoutMs: toNumber(process.env.EXTERNAL_REQUEST_TIMEOUT_MS, 15000),
@@ -100,7 +106,8 @@ export function loadConfig() {
       mercadolivre: {
         feedUrl: process.env.MERCADOLIVRE_FEED_URL ?? "",
         apiKey: process.env.MERCADOLIVRE_API_KEY ?? "",
-        affiliateId: process.env.MERCADOLIVRE_AFFILIATE_ID ?? "",
+        affiliateId: process.env.ML_AFFILIATE_ID ?? process.env.MERCADOLIVRE_AFFILIATE_ID ?? "",
+        affiliateUrlTemplate: process.env.MERCADOLIVRE_AFFILIATE_URL_TEMPLATE ?? "",
         searchUrlTemplate:
           process.env.MERCADOLIVRE_SEARCH_URL_TEMPLATE ??
           "https://lista.mercadolivre.com.br/{query}",
@@ -109,6 +116,7 @@ export function loadConfig() {
         feedUrl: process.env.SHOPEE_FEED_URL ?? "",
         apiKey: process.env.SHOPEE_API_KEY ?? "",
         affiliateId: process.env.SHOPEE_AFFILIATE_ID ?? "",
+        affiliateUrlTemplate: process.env.SHOPEE_AFFILIATE_URL_TEMPLATE ?? "",
         searchUrlTemplate:
           process.env.SHOPEE_SEARCH_URL_TEMPLATE ??
           "https://shopee.com.br/search?keyword={query}",

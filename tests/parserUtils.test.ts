@@ -16,4 +16,12 @@ describe("parserUtils", () => {
     const text = "12x de R$ 172,05 sem juros ou R$ 1.999,99 a vista";
     expect(parsePrimaryPriceText(text)).toBe(1999.99);
   });
+
+  it("nao deve transformar parcelamento isolado em preco principal", () => {
+    expect(parsePrimaryPriceText("12x de R$ 172,05 sem juros")).toBeNull();
+  });
+
+  it("deve interpretar aria-label do Mercado Livre com reais e centavos", () => {
+    expect(parsePrimaryPriceText("4.799 reais com 90 centavos")).toBe(4799.9);
+  });
 });

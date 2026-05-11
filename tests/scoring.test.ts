@@ -106,4 +106,92 @@ describe("ranking", () => {
     expect(ranked[0].verifiedPrice).toBe(20);
     expect(ranked[0].warnings.length).toBeGreaterThan(0);
   });
+
+  it("deve priorizar preco menor mesmo quando o match for similar", () => {
+    const expensiveExact = {
+      ...buildCandidate({
+        storeItemId: "exacto-caro",
+        basePrice: 500,
+      }),
+      matchType: "exact" as const,
+      matchScore: 1,
+    };
+
+    const cheapSimilar = {
+      ...buildCandidate({
+        storeItemId: "similar-barato",
+        basePrice: 100,
+      }),
+      matchType: "similar" as const,
+      matchScore: 0.4,
+    };
+
+    const ranked = rankResults([expensiveExact, cheapSimilar]);
+
+    expect(ranked[0].storeItemId).toBe("similar-barato");
+    expect(ranked[0].verifiedPrice).toBe(100);
+    expect(ranked[1].storeItemId).toBe("exacto-caro");
+  });
+
+  it("deve avisar quando preco veio da listagem por bloqueio na pagina do produto", () => {
+    const listingFallback = {
+      ...buildCandidate({
+        storeItemId: "grid-fallback",
+        basePrice: 300,
+        priceSource: "listing",
+      }),
+      matchType: "exact" as const,
+      matchScore: 0.98,
+    };
+
+    const ranked = rankResults([listingFallback], 10);
+
+    expect(ranked[0].warnings).toContain(
+      "Preco extraido da listagem; validacao do produto foi bloqueada.",
+    );
+  });
+
+  it("deve retornar no maximo 20 resultados por padrao", () => {
+    const candidates = Array.from({ length: 25 }, (_item, index) => ({
+      ...buildCandidate({
+        storeItemId: `produto-${index}`,
+        basePrice: 1000 - index,
+      }),
+      matchType: "exact" as const,
+      matchScore: 0.9,
+    }));
+
+    const ranked = rankResults(candidates);
+
+    expect(ranked.length).toBe(20);
+    expect(ranked[0].verifiedPrice).toBe(976);
+    expect(ranked[19].verifiedPrice).toBe(995);
+  });
+
+  it("deve limitar resultados por loja quando configurado", () => {
+    const amazon = Array.from({ length: 15 }, (_item, index) => ({
+      ...buildCandidate({
+        storeItemId: `amazon-${index}`,
+        basePrice: 100 + index,
+      }),
+      store: "amazon" as const,
+      matchType: "exact" as const,
+      matchScore: 0.95,
+    }));
+    const mercadoLivre = Array.from({ length: 15 }, (_item, index) => ({
+      ...buildCandidate({
+        storeItemId: `ml-${index}`,
+        basePrice: 1000 + index,
+      }),
+      store: "mercadolivre" as const,
+      matchType: "exact" as const,
+      matchScore: 0.95,
+    }));
+
+    const ranked = rankResults([...amazon, ...mercadoLivre], 20, 10);
+
+    expect(ranked).toHaveLength(20);
+    expect(ranked.filter((item) => item.store === "amazon")).toHaveLength(10);
+    expect(ranked.filter((item) => item.store === "mercadolivre")).toHaveLength(10);
+  });
 });

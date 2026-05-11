@@ -8,6 +8,8 @@ import { AmazonSearchAdapter } from "./search/adapters/amazonSearchAdapter";
 import { MercadoLivreSearchAdapter } from "./search/adapters/mercadoLivreSearchAdapter";
 import { ShopeeSearchAdapter } from "./search/adapters/shopeeSearchAdapter";
 import { SearchService } from "./search/searchService";
+import { closeStealthBrowser } from "./search/scraping/stealthBrowser";
+import type { MarketplaceSearchAdapter } from "./search/types";
 
 async function bootstrap() {
   const config = loadConfig();
@@ -16,7 +18,7 @@ async function bootstrap() {
   const repository = new SearchRepository(config.databasePath);
   repository.init();
 
-  const adapters = [
+  const adapters: MarketplaceSearchAdapter[] = [
     new AmazonSearchAdapter(config, logger),
     new MercadoLivreSearchAdapter(config, logger),
   ];
@@ -40,11 +42,18 @@ async function bootstrap() {
     logger.info({ port: config.port }, "Servidor iniciado.");
   });
 
+  let isShuttingDown = false;
   const shutdown = () => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
     logger.info("Encerrando aplicacao...");
     cleanupJob.stop();
 
-    server.close(() => {
+    server.close(async () => {
+      await closeStealthBrowser().catch((error) => {
+        logger.warn({ err: error }, "Falha ao encerrar stealth browser.");
+      });
       repository.close();
       logger.info("Aplicacao encerrada.");
       process.exit(0);
