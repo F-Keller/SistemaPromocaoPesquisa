@@ -1,3 +1,4 @@
+import path from "node:path";
 import express, { NextFunction, Request, Response } from "express";
 import { AppConfig } from "../config/env";
 import { AppLogger } from "../config/logger";
@@ -22,6 +23,17 @@ const requiredFields: Array<keyof AddressInput> = [
 
 const normalizeString = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
+
+const STORE_LOGO_FILES = new Set([
+  "Amazon_icon.png",
+  "Logotipo_MercadoLivre.png",
+  "shopee-bag-logo-free-transparent-icon-17.png",
+  "amazon.jpg",
+  "mercadolivre.jpg",
+  "shopee.jpg",
+]);
+
+const IMAGE_ASSET_FILES = new Set(["moeda1real-removebg-preview.png", "garimpei-logo.png"]);
 
 function parseSearchInput(body: unknown): { input: SearchInput | null; error: string | null } {
   if (!body || typeof body !== "object") {
@@ -77,6 +89,28 @@ export function createServer(params: CreateServerParams) {
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
 
+  app.get("/assets/store-logos/:file", (req, res, next) => {
+    const file = String(req.params.file ?? "");
+    if (!STORE_LOGO_FILES.has(file)) {
+      return res.status(404).json({ error: "Logo nao encontrada." });
+    }
+
+    return res.sendFile(path.resolve(process.cwd(), "src", "imgs", file), (error) => {
+      if (error) next(error);
+    });
+  });
+
+  app.get("/assets/imgs/:file", (req, res, next) => {
+    const file = String(req.params.file ?? "");
+    if (!IMAGE_ASSET_FILES.has(file)) {
+      return res.status(404).json({ error: "Imagem nao encontrada." });
+    }
+
+    return res.sendFile(path.resolve(process.cwd(), "src", "imgs", file), (error) => {
+      if (error) next(error);
+    });
+  });
+
   app.get("/", (_req, res) => {
     res.type("html").send(renderSearchPage());
   });
@@ -95,7 +129,9 @@ export function createServer(params: CreateServerParams) {
       return res.status(400).json({ error });
     }
 
-    const searchId = searchService.createSearch(input);
+    const forceRefresh =
+      req.body && typeof req.body === "object" && (req.body as Record<string, unknown>).forceRefresh === true;
+    const searchId = searchService.createSearch(input, { forceRefresh });
     return res.status(202).json({
       searchId,
       statusUrl: `/api/searches/${searchId}`,
