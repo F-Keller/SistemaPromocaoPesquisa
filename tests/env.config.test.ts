@@ -62,6 +62,32 @@ describe("config env parsing", () => {
     expect(config.shopeeBrowserProfileDir).toBe(path.resolve(process.cwd(), "./data/test-shopee-profile"));
   });
 
+  it("deve usar caminhos temporarios como default na Vercel", () => {
+    process.env.VERCEL = "1";
+    delete process.env.DATABASE_PATH;
+    delete process.env.BACKUP_DIR;
+    delete process.env.SHOPEE_BROWSER_PROFILE_DIR;
+
+    const config = loadConfig();
+
+    expect(config.databasePath).toBe("/tmp/adsbot.sqlite");
+    expect(config.backupDir).toBe("/tmp/backups");
+    expect(config.shopeeBrowserProfileDir).toBe("/tmp/browser-profiles/shopee");
+  });
+
+  it("deve preservar overrides manuais de caminhos na Vercel", () => {
+    process.env.VERCEL_ENV = "production";
+    process.env.DATABASE_PATH = "./custom/adsbot.sqlite";
+    process.env.BACKUP_DIR = "./custom/backups";
+    process.env.SHOPEE_BROWSER_PROFILE_DIR = "./custom/shopee-profile";
+
+    const config = loadConfig();
+
+    expect(config.databasePath).toBe(path.resolve(process.cwd(), "./custom/adsbot.sqlite"));
+    expect(config.backupDir).toBe(path.resolve(process.cwd(), "./custom/backups"));
+    expect(config.shopeeBrowserProfileDir).toBe(path.resolve(process.cwd(), "./custom/shopee-profile"));
+  });
+
   it("deve carregar configuracoes de afiliado por marketplace", () => {
     process.env.ML_AFFILIATE_ID = "ml-novo";
     process.env.MERCADOLIVRE_AFFILIATE_ID = "ml-legado";
