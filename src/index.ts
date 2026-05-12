@@ -1,3 +1,4 @@
+import express from "express";
 import http from "node:http";
 import { createServer } from "./api/createServer";
 import { loadConfig } from "./config/env";
@@ -10,6 +11,9 @@ import { ShopeeSearchAdapter } from "./search/adapters/shopeeSearchAdapter";
 import { SearchService } from "./search/searchService";
 import { closeStealthBrowser } from "./search/scraping/stealthBrowser";
 import type { MarketplaceSearchAdapter } from "./search/types";
+
+// Vercel's Express preset detects the framework from the entrypoint file.
+void express;
 
 async function bootstrap() {
   const config = loadConfig();
