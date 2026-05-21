@@ -1,49 +1,16 @@
 import express from "express";
 import http from "node:http";
-import { createServer } from "./api/createServer";
-import { loadConfig } from "./config/env";
-import { createLogger } from "./config/logger";
-import { SearchRepository } from "./db/searchRepository";
-import { startSearchCleanupJob } from "./jobs/searchCleanupJob";
-import { AmazonSearchAdapter } from "./search/adapters/amazonSearchAdapter";
-import { MercadoLivreSearchAdapter } from "./search/adapters/mercadoLivreSearchAdapter";
-import { ShopeeSearchAdapter } from "./search/adapters/shopeeSearchAdapter";
-import { SearchService } from "./search/searchService";
-import { closeStealthBrowser } from "./search/scraping/stealthBrowser";
-import type { MarketplaceSearchAdapter } from "./search/types";
+import { createAppRuntime } from "./app";
 
-// Vercel's Express preset detects the framework from the entrypoint file.
+// Keep this import visible for tooling that detects Express from the entrypoint.
 void express;
 
 async function bootstrap() {
-  const config = loadConfig();
-  const logger = createLogger(config);
+  const runtime = createAppRuntime({ startCleanupJob: true });
+  const server = http.createServer(runtime.app);
 
-  const repository = new SearchRepository(config.databasePath);
-  repository.init();
-
-  const adapters: MarketplaceSearchAdapter[] = [
-    new AmazonSearchAdapter(config, logger),
-    new MercadoLivreSearchAdapter(config, logger),
-  ];
-
-  if (config.enableShopeeSearch) {
-    adapters.push(new ShopeeSearchAdapter(config, logger));
-  }
-
-  const searchService = new SearchService(config, repository, adapters, logger);
-  const cleanupJob = startSearchCleanupJob(config, logger, searchService);
-
-  const app = createServer({
-    config,
-    logger,
-    searchService,
-  });
-
-  const server = http.createServer(app);
-
-  server.listen(config.port, () => {
-    logger.info({ port: config.port }, "Servidor iniciado.");
+  server.listen(runtime.config.port, () => {
+    runtime.logger.info({ port: runtime.config.port }, "Servidor iniciado.");
   });
 
   let isShuttingDown = false;
@@ -51,15 +18,11 @@ async function bootstrap() {
     if (isShuttingDown) return;
     isShuttingDown = true;
 
-    logger.info("Encerrando aplicacao...");
-    cleanupJob.stop();
+    runtime.logger.info("Encerrando aplicacao...");
 
     server.close(async () => {
-      await closeStealthBrowser().catch((error) => {
-        logger.warn({ err: error }, "Falha ao encerrar stealth browser.");
-      });
-      repository.close();
-      logger.info("Aplicacao encerrada.");
+      await runtime.close();
+      runtime.logger.info("Aplicacao encerrada.");
       process.exit(0);
     });
   };

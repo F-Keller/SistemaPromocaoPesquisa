@@ -75,7 +75,7 @@ describe("config env parsing", () => {
     expect(config.shopeeBrowserProfileDir).toBe("/tmp/browser-profiles/shopee");
   });
 
-  it("deve preservar overrides manuais de caminhos na Vercel", () => {
+  it("deve ignorar overrides relativos de caminhos na Vercel", () => {
     process.env.VERCEL_ENV = "production";
     process.env.DATABASE_PATH = "./custom/adsbot.sqlite";
     process.env.BACKUP_DIR = "./custom/backups";
@@ -83,9 +83,22 @@ describe("config env parsing", () => {
 
     const config = loadConfig();
 
-    expect(config.databasePath).toBe(path.resolve(process.cwd(), "./custom/adsbot.sqlite"));
-    expect(config.backupDir).toBe(path.resolve(process.cwd(), "./custom/backups"));
-    expect(config.shopeeBrowserProfileDir).toBe(path.resolve(process.cwd(), "./custom/shopee-profile"));
+    expect(config.databasePath).toBe("/tmp/adsbot.sqlite");
+    expect(config.backupDir).toBe("/tmp/backups");
+    expect(config.shopeeBrowserProfileDir).toBe("/tmp/browser-profiles/shopee");
+  });
+
+  it("deve preservar overrides em /tmp na Vercel", () => {
+    process.env.VERCEL_ENV = "production";
+    process.env.DATABASE_PATH = "/tmp/custom.sqlite";
+    process.env.BACKUP_DIR = "/tmp/custom-backups";
+    process.env.SHOPEE_BROWSER_PROFILE_DIR = "/tmp/custom-shopee-profile";
+
+    const config = loadConfig();
+
+    expect(config.databasePath).toBe("/tmp/custom.sqlite");
+    expect(config.backupDir).toBe("/tmp/custom-backups");
+    expect(config.shopeeBrowserProfileDir).toBe("/tmp/custom-shopee-profile");
   });
 
   it("deve carregar configuracoes de afiliado por marketplace", () => {

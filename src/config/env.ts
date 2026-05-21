@@ -23,6 +23,20 @@ const toList = (value: string | undefined): string[] =>
 const resolveConfiguredPath = (value: string): string =>
   path.isAbsolute(value) || value.startsWith("/") ? value : path.resolve(process.cwd(), value);
 
+const resolveRuntimePath = (
+  value: string | undefined,
+  fallback: string,
+  isVercelRuntime: boolean,
+): string => {
+  const configuredValue = value ?? fallback;
+
+  if (isVercelRuntime && !configuredValue.startsWith("/tmp")) {
+    return fallback;
+  }
+
+  return resolveConfiguredPath(configuredValue);
+};
+
 export type AppConfig = ReturnType<typeof loadConfig>;
 
 export function loadConfig() {
@@ -48,8 +62,8 @@ export function loadConfig() {
     appBaseUrl: process.env.APP_BASE_URL ?? "http://localhost:3333",
     timezone: process.env.TIMEZONE ?? "America/Sao_Paulo",
 
-    databasePath: resolveConfiguredPath(process.env.DATABASE_PATH ?? defaultDatabasePath),
-    backupDir: resolveConfiguredPath(process.env.BACKUP_DIR ?? defaultBackupDir),
+    databasePath: resolveRuntimePath(process.env.DATABASE_PATH, defaultDatabasePath, isVercelRuntime),
+    backupDir: resolveRuntimePath(process.env.BACKUP_DIR, defaultBackupDir, isVercelRuntime),
 
     searchTtlMinutes: toNumber(process.env.SEARCH_TTL_MINUTES, 60),
     searchCleanupCron: process.env.SEARCH_CLEANUP_CRON ?? "*/15 * * * *",
@@ -70,8 +84,10 @@ export function loadConfig() {
       process.env.SCRAPER_USER_AGENT ??
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     proxyUrl: process.env.PROXY_URL?.trim() ?? "",
-    shopeeBrowserProfileDir: resolveConfiguredPath(
-      process.env.SHOPEE_BROWSER_PROFILE_DIR ?? defaultShopeeBrowserProfileDir,
+    shopeeBrowserProfileDir: resolveRuntimePath(
+      process.env.SHOPEE_BROWSER_PROFILE_DIR,
+      defaultShopeeBrowserProfileDir,
+      isVercelRuntime,
     ),
 
     enableScrapingFallback: toBoolean(process.env.ENABLE_SCRAPING_FALLBACK, true),
